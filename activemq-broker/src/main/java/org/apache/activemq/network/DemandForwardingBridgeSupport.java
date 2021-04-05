@@ -200,6 +200,12 @@ public abstract class DemandForwardingBridgeSupport implements NetworkBridge, Br
                     @Override
                     public void onCommand(Object o) {
                         Command command = (Command) o;
+                        if(command instanceof Message)
+						{
+                		   Message message = (Message ) command;
+						   if(message!=null)
+                    		   message.setFromNetworkbridge(true);
+						}
                         serviceLocalCommand(command);
                     }
 
@@ -801,6 +807,7 @@ public abstract class DemandForwardingBridgeSupport implements NetworkBridge, Br
                         LOG.trace("{} duplex command type: {}", configuration.getBrokerName(), command.getDataStructureType());
                         if (command.isMessage()) {
                             final ActiveMQMessage message = (ActiveMQMessage) command;
+                            message.setFromNetworkbridge(true);
                             if (NetworkBridgeFilter.isAdvisoryInterpretedByNetworkBridge(message)) {
                                 serviceRemoteConsumerAdvisory(message.getDataStructure());
                                 ackAdvisory(message);
