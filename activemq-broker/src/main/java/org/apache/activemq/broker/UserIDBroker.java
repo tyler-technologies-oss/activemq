@@ -38,21 +38,24 @@ public class UserIDBroker extends BrokerFilter {
     public void send(ProducerBrokerExchange producerExchange, Message messageSend) throws Exception {
         final ConnectionContext context = producerExchange.getConnectionContext();
         String userID = context.getUserName();
-        if (isUseAuthenticatePrincipal()) {
-            SecurityContext securityContext = context.getSecurityContext();
-            if (securityContext != null) {
-                Set<?> principals = securityContext.getPrincipals();
-                if (principals != null) {
-                    for (Object candidate : principals) {
-                        if (candidate instanceof UserPrincipal) {
-                            userID = ((UserPrincipal)candidate).getName();
-                            break;
-                        }
-                    }
-                }
-            }
+        if(!messageSend.isFromNetworkbridge() ||  userID==null )
+        {
+	        if (isUseAuthenticatePrincipal()) {
+	            SecurityContext securityContext = context.getSecurityContext();
+	            if (securityContext != null) {
+	                Set<?> principals = securityContext.getPrincipals();
+	                if (principals != null) {
+	                    for (Object candidate : principals) {
+	                        if (candidate instanceof UserPrincipal) {
+	                            userID = ((UserPrincipal)candidate).getName();
+	                            break;
+	                        }
+	                    }
+	                }
+	            }
+	        }
+	        messageSend.setUserID(userID);
         }
-        messageSend.setUserID(userID);
         super.send(producerExchange, messageSend);
     }
 
