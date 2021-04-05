@@ -42,21 +42,24 @@ public class UserIDBroker extends BrokerFilter {
             return;
         }
         String userID = context.getUserName();
-        if (isUseAuthenticatePrincipal()) {
-            SecurityContext securityContext = context.getSecurityContext();
-            if (securityContext != null) {
-                Set<?> principals = securityContext.getPrincipals();
-                if (principals != null) {
-                    for (Object candidate : principals) {
-                        if (candidate instanceof UserPrincipal) {
-                            userID = ((UserPrincipal)candidate).getName();
-                            break;
-                        }
-                    }
-                }
-            }
+        if(!messageSend.isFromNetworkbridge() ||  userID==null )
+        {
+	        if (isUseAuthenticatePrincipal()) {
+	            SecurityContext securityContext = context.getSecurityContext();
+	            if (securityContext != null) {
+	                Set<?> principals = securityContext.getPrincipals();
+	                if (principals != null) {
+	                    for (Object candidate : principals) {
+	                        if (candidate instanceof UserPrincipal) {
+	                            userID = ((UserPrincipal)candidate).getName();
+	                            break;
+	                        }
+	                    }
+	                }
+	            }
+	        }
+	        messageSend.setUserID(userID);
         }
-        messageSend.setUserID(userID);
         super.send(producerExchange, messageSend);
     }
 

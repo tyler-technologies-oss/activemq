@@ -97,6 +97,7 @@ public abstract class Message extends BaseCommand implements MarshallAware, Mess
     private transient ActiveMQConnection connection;
     transient MessageDestination regionDestination;
     transient MemoryUsage memoryUsage;
+    private transient boolean fromNetworkbridge;
     transient AtomicBoolean processAsExpired = new AtomicBoolean(false);
 
     private BrokerId[] brokerPath;
@@ -871,4 +872,10 @@ public abstract class Message extends BaseCommand implements MarshallAware, Mess
         }
         return this;
     }
+	public boolean isFromNetworkbridge() {
+		return fromNetworkbridge;
+	}
+	public void setFromNetworkbridge(boolean fromNetworkbridge) {
+		this.fromNetworkbridge = fromNetworkbridge;
+	}
 }
