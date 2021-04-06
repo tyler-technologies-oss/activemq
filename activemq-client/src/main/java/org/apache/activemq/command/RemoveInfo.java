@@ -33,12 +33,19 @@ public class RemoveInfo extends BaseCommand {
     public static final int LAST_DELIVERED_UNKNOWN = -2;
     protected DataStructure objectId;
     protected long lastDeliveredSequenceId = LAST_DELIVERED_UNKNOWN;
-
+    protected DataStructure localObjectId;
+    
     public RemoveInfo() {
     }
 
+    public RemoveInfo(DataStructure objectId,DataStructure localObjectId) {
+        this.objectId = objectId;
+        this.localObjectId=localObjectId;
+    }
+    
     public RemoveInfo(DataStructure objectId) {
         this.objectId = objectId;
+        this.localObjectId=objectId;
     }
 
     public byte getDataStructureType() {
@@ -74,7 +81,7 @@ public class RemoveInfo extends BaseCommand {
         case SessionId.DATA_STRUCTURE_TYPE:
             return visitor.processRemoveSession((SessionId)objectId, lastDeliveredSequenceId);
         case ConsumerId.DATA_STRUCTURE_TYPE:
-            return visitor.processRemoveConsumer((ConsumerId)objectId, lastDeliveredSequenceId);
+        	return visitor.processRemoveConsumer((ConsumerId)localObjectId, lastDeliveredSequenceId);
         case ProducerId.DATA_STRUCTURE_TYPE:
             return visitor.processRemoveProducer((ProducerId)objectId);
         default:
