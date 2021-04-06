@@ -297,8 +297,15 @@ public class ConsumerInfo extends BaseCommand implements TransientInitializer {
     }
 
     public RemoveInfo createRemoveCommand() {
-        RemoveInfo command = new RemoveInfo(getConsumerId());
-        command.setResponseRequired(isResponseRequired());
+    	ConsumerId id=getConsumerId();    	
+    	RemoveInfo command ;
+    	if(this.networkConsumerIds!=null && this.networkConsumerIds.size() > 0)
+    	{
+    		ConsumerId networkId=this.networkConsumerIds.get(0);
+    		command = new RemoveInfo(networkId,id);
+    	}else
+    		command = new RemoveInfo(id);   
+    	command.setResponseRequired(isResponseRequired());
         return command;
     }
 
