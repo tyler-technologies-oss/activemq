@@ -137,15 +137,14 @@ public class MultiKahaDBPersistenceAdapter extends LockableServiceSupport implem
             if (filteredAdapter.getDestination() == null) {
                 filteredAdapter.setDestination(matchAll);
             }
-
             if (filteredAdapter.isPerDestination()) {
-                configureDirectory(adapter, null);
+                configureDirectory(adapter, null, null);
                 // per destination adapters will be created on demand or during recovery
                 continue;
             } else {
-                configureDirectory(adapter, nameFromDestinationFilter(filteredAdapter.getDestination()));
+                configureDirectory(adapter, nameFromDestinationFilter(filteredAdapter.getDestination()),null);
             }
-
+            
             configureAdapter(adapter);
             adapters.add(adapter);
         }
@@ -398,7 +397,7 @@ public class MultiKahaDBPersistenceAdapter extends LockableServiceSupport implem
     }
 
     private void registerExistingAdapter(FilteredKahaDBPersistenceAdapter filteredAdapter, File candidate) throws IOException {
-        PersistenceAdapter adapter = adapterFromTemplate(filteredAdapter, candidate.getName());
+    	PersistenceAdapter adapter = adapterFromTemplate(filteredAdapter.getPersistenceAdapter(), candidate.getName(), null);
         startAdapter(adapter, candidate.getName());
         Set<ActiveMQDestination> destinations = adapter.getDestinations();
         if (destinations.size() != 0) {
@@ -409,15 +408,20 @@ public class MultiKahaDBPersistenceAdapter extends LockableServiceSupport implem
     }
 
     private FilteredKahaDBPersistenceAdapter addAdapter(FilteredKahaDBPersistenceAdapter filteredAdapter, ActiveMQDestination destination) throws IOException {
-        PersistenceAdapter adapter = adapterFromTemplate(filteredAdapter, nameFromDestinationFilter(destination));
+    	String [] destinationPaths = destination.getDestinationPaths();
+    	String subdirectory = null;
+    	if(destinationPaths.length > 0) {
+    		subdirectory=destinationPaths[0];
+    	}
+    	PersistenceAdapter adapter = adapterFromTemplate(filteredAdapter.getPersistenceAdapter(), 
+        		nameFromDestinationFilter(destination),subdirectory);
         return registerAdapter(filteredAdapter, adapter, destination);
     }
 
-    private PersistenceAdapter adapterFromTemplate(FilteredKahaDBPersistenceAdapter template, String destinationName) throws IOException {
-        PersistenceAdapter adapter = kahaDBFromTemplate(template.getPersistenceAdapter());
+    private PersistenceAdapter adapterFromTemplate(PersistenceAdapter template, String destinationName,String subDirectory) throws IOException {
+        PersistenceAdapter adapter = kahaDBFromTemplate(template);
         configureAdapter(adapter);
-        configureDirectory(adapter, destinationName);
-        configureIndexDirectory(adapter, template.getPersistenceAdapter(), destinationName);
+        configureDirectory(adapter, destinationName,subDirectory);
         return adapter;
     }
 
@@ -436,7 +440,7 @@ public class MultiKahaDBPersistenceAdapter extends LockableServiceSupport implem
         }
     }
 
-    private void configureDirectory(PersistenceAdapter adapter, String fileName) {
+    private void configureDirectory(PersistenceAdapter adapter, String fileName, String subDirectory) {
         File directory = null;
         File defaultDir = DEFAULT_DIRECTORY;
         try {
@@ -449,9 +453,20 @@ public class MultiKahaDBPersistenceAdapter extends LockableServiceSupport implem
         } else {
             directory = adapter.getDirectory();
         }
-
+        if(subDirectory != null && !subDirectory.isEmpty())
+        {
+        	directory.getAbsolutePath();
+        }
         if (fileName != null) {
-            directory = new File(directory, fileName);
+        	String fileNameModified;
+        	if(subDirectory != null && !subDirectory.isEmpty())
+            {
+        		fileNameModified = directory.getAbsolutePath()+"/"+subDirectory+"/"+fileName;
+        		directory = new File(fileNameModified);
+        		
+            }else {
+            	directory = new File(directory, fileName);
+            }
         }
         adapter.setDirectory(directory);
     }
@@ -502,6 +517,7 @@ public class MultiKahaDBPersistenceAdapter extends LockableServiceSupport implem
 
     @Override
     public void setDirectory(File directory) {
+    	LOG.info("Setting the journal directory to "+directory.getAbsolutePath());
         this.directory = directory;
     }
 
