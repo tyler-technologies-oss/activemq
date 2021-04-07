@@ -73,6 +73,7 @@ public class PolicyEntry extends DestinationMapEntry {
     private int maxBrowsePageSize=BaseDestination.MAX_BROWSE_PAGE_SIZE;
     private boolean useCache=true;
     private long minimumMessageSize=1024;
+    private int maxPendingDispatchMessages=0;
     private boolean useConsumerPriority=true;
     private boolean strictOrderDispatch=false;
     private boolean lazyDispatch=false;
@@ -354,6 +355,7 @@ public class PolicyEntry extends DestinationMapEntry {
             subscription.setMaxProducersToAudit(maxProducersToAudit);
             subscription.setMaxAuditDepth(maxAuditDepth);
         }
+        subscription.setMaxPendingDispatchMessages(this.getMaxPendingDispatchMessages());
     }
 
     public void configure(Broker broker, SystemUsage memoryManager, DurableTopicSubscription sub) {
@@ -1153,4 +1155,13 @@ public class PolicyEntry extends DestinationMapEntry {
     public void setUseTopicSubscriptionInflightStats(boolean useTopicSubscriptionInflightStats) {
         this.useTopicSubscriptionInflightStats = useTopicSubscriptionInflightStats;
     }
+    
+    public int getMaxPendingDispatchMessages() {
+		return maxPendingDispatchMessages;
+	}
+    
+	public void setMaxPendingDispatchMessages(int maxPendingDispatchMessages) {
+		LOG.info("maxPendingDispatchMessages set to "+maxPendingDispatchMessages);
+		this.maxPendingDispatchMessages = maxPendingDispatchMessages;
+	}
 }
