@@ -56,6 +56,7 @@ public class TopicSubscription extends AbstractSubscription {
     private final AtomicInteger discarded = new AtomicInteger();
     private final Object matchedListMutex = new Object();
     private int memoryUsageHighWaterMark = 95;
+    private int maxPendingDispatchMessages=0;
     // allow duplicate suppression in a ring network of brokers
     protected int maxProducersToAudit = 1024;
     protected int maxAuditDepth = 1000;
@@ -103,6 +104,7 @@ public class TopicSubscription extends AbstractSubscription {
         if (isDuplicate(node)) {
             return;
         }
+        purgeDispatched();
         // Lets use an indirect reference so that we can associate a unique
         // locator /w the message.
         node = new IndirectMessageReference(node.getMessage());
@@ -242,6 +244,7 @@ public class TopicSubscription extends AbstractSubscription {
                     break;
                 }
             }
+            purgeDispatched();
         } finally {
             matched.release();
         }
@@ -445,6 +448,34 @@ public class TopicSubscription extends AbstractSubscription {
         }
     }
 
+    private void purgeDispatched() {
+		try {		
+			if(maxPendingDispatchMessages<=0 || dispatched.size() < maxPendingDispatchMessages)
+				return;
+			synchronized (dispatchLock) {			
+				List<DispatchedNode> removeList = new ArrayList<DispatchedNode>();
+				for (final DispatchedNode node : dispatched) {
+					long expireTime=node.getExpiration()+30000; // Give a 30 sec grace period
+				    boolean isReadyForKickout= expireTime > 0 && System.currentTimeMillis() > expireTime;
+					if(isReadyForKickout)
+						removeList.add(node);	
+				}
+				if(removeList.size() > 0)
+					LOG.info("{} messages are to be purged {} ", removeList.size(),this);
+				for (final DispatchedNode node : removeList) {
+					dispatched.remove(node);
+					getSubscriptionStatistics().getInflightMessageSize().addSize(-node.getSize());
+					getSubscriptionStatistics().getDequeues().increment();
+					((Destination) node.getDestination()).getDestinationStatistics().getDequeues().increment();
+					((Destination) node.getDestination()).getDestinationStatistics().getInflight().decrement();				
+				}
+			}
+		}catch( Exception e )
+		{
+			LOG.warn("Failed in the purging the dispatched",e);
+		}
+	}
+    
     private void incrementStatsOnAck(final Destination destination, final MessageAck ack, final int count) {
         currentDispatchedCount.addAndGet(-count);
         getSubscriptionStatistics().getDequeues().add(count);
@@ -815,11 +846,21 @@ public class TopicSubscription extends AbstractSubscription {
     public void setUseTopicSubscriptionInflightStats(boolean useTopicSubscriptionInflightStats) {
         this.useTopicSubscriptionInflightStats = useTopicSubscriptionInflightStats;
     }
+    
+    public void setMaxPendingDispatchMessages(int maxPendingDispatchMessages) {
+		LOG.info("maxPendingDispatchMessages set to "+maxPendingDispatchMessages);
+		this.maxPendingDispatchMessages=maxPendingDispatchMessages;		
+	}
+    
+	public int getMaxPendingDispatchMessages() {
+		return maxPendingDispatchMessages;
+	}
 
     private static class DispatchedNode {
         private final int size;
         private final MessageId messageId;
         private final Destination destination;
+        private final long expiration;
 
         public DispatchedNode(final MessageReference node) {
             super();
@@ -827,6 +868,7 @@ public class TopicSubscription extends AbstractSubscription {
             this.messageId = node.getMessageId();
             this.destination = node.getRegionDestination() instanceof Destination ?
                     ((Destination)node.getRegionDestination()) : null;
+            this.expiration = node.getExpiration();
         }
 
         public long getSize() {
@@ -839,6 +881,11 @@ public class TopicSubscription extends AbstractSubscription {
 
         public Destination getDestination() {
             return destination;
+        }
+        
+        public long getExpiration()
+        {
+        	return expiration;
         }
     }
 
