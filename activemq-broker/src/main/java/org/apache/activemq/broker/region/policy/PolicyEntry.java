@@ -73,6 +73,7 @@ public class PolicyEntry extends DestinationMapEntry {
     private int maxBrowsePageSize=BaseDestination.MAX_BROWSE_PAGE_SIZE;
     private boolean useCache=true;
     private long minimumMessageSize=1024;
+    private int maxPendingDispatchMessages=0;
     private boolean useConsumerPriority=true;
     private boolean strictOrderDispatch=false;
     private boolean lazyDispatch=false;
@@ -369,6 +370,7 @@ public class PolicyEntry extends DestinationMapEntry {
             subscription.setMaxProducersToAudit(maxProducersToAudit);
             subscription.setMaxAuditDepth(maxAuditDepth);
         }
+        subscription.setMaxPendingDispatchMessages(this.getMaxPendingDispatchMessages());
     }
 
     public void configure(Broker broker, SystemUsage memoryManager, DurableTopicSubscription sub) {
@@ -1183,7 +1185,7 @@ public class PolicyEntry extends DestinationMapEntry {
 
     public MessageInterceptorStrategy getMessageInterceptorStrategy() {
         return this.messageInterceptorStrategy;
-    } 
+    }
 
     public boolean isAdvancedNetworkStatisticsEnabled() {
         return this.advancedNetworkStatisticsEnabled;
@@ -1200,4 +1202,13 @@ public class PolicyEntry extends DestinationMapEntry {
     public void setAdvancedMessageStatisticsEnabled(boolean advancedMessageStatisticsEnabled) {
         this.advancedMessageStatisticsEnabled = advancedMessageStatisticsEnabled;
     }
+
+    public int getMaxPendingDispatchMessages() {
+		return maxPendingDispatchMessages;
+	}
+
+	public void setMaxPendingDispatchMessages(int maxPendingDispatchMessages) {
+		LOG.info("maxPendingDispatchMessages set to "+maxPendingDispatchMessages);
+		this.maxPendingDispatchMessages = maxPendingDispatchMessages;
+	}
 }
