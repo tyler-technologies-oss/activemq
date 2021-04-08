@@ -92,6 +92,7 @@ public class MultiKahaDBPersistenceAdapter extends LockableServiceSupport implem
     private File directory = new File(IOHelper.getDefaultDataDirectory() + File.separator + "mKahaDB");
 
     MultiKahaDBTransactionStore transactionStore = new MultiKahaDBTransactionStore(this);
+	private boolean createSubDirectories=false;
 
     // all local store transactions are XA, 2pc if more than one adapter involved
     TransactionIdTransformer transactionIdTransformer = new TransactionIdTransformer() {
@@ -410,7 +411,7 @@ public class MultiKahaDBPersistenceAdapter extends LockableServiceSupport implem
     private FilteredKahaDBPersistenceAdapter addAdapter(FilteredKahaDBPersistenceAdapter filteredAdapter, ActiveMQDestination destination) throws IOException {
     	String [] destinationPaths = destination.getDestinationPaths();
     	String subdirectory = null;
-    	if(destinationPaths.length > 0) {
+    	if(destinationPaths.length > 0 && isCreateSubDirectories()) {
     		subdirectory=destinationPaths[0];
     	}
     	PersistenceAdapter adapter = adapterFromTemplate(filteredAdapter.getPersistenceAdapter(), 
@@ -584,6 +585,13 @@ public class MultiKahaDBPersistenceAdapter extends LockableServiceSupport implem
 
     public boolean isCheckForCorruption() {
         return transactionStore.isCheckForCorruption();
+    }
+	public void setCreateSubDirectories(boolean createSubDirectories) {
+        this.createSubDirectories=createSubDirectories;
+    }
+
+    public boolean isCreateSubDirectories() {
+        return createSubDirectories;
     }
 
     public List<PersistenceAdapter> getAdapters() {
