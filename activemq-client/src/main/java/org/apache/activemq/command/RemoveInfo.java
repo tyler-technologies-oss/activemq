@@ -61,6 +61,7 @@ public class RemoveInfo extends BaseCommand {
 
     public void setObjectId(DataStructure objectId) {
         this.objectId = objectId;
+        this.localObjectId = objectId;
     }
 
     /**
