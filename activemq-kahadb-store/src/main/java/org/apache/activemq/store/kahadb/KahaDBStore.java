@@ -28,6 +28,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
@@ -61,6 +62,7 @@ import org.apache.activemq.protobuf.Buffer;
 import org.apache.activemq.store.AbstractMessageStore;
 import org.apache.activemq.store.IndexListener;
 import org.apache.activemq.store.ListenableFuture;
+import org.apache.activemq.store.MessageRecoveryContext;
 import org.apache.activemq.store.MessageRecoveryListener;
 import org.apache.activemq.store.MessageStore;
 import org.apache.activemq.store.MessageStoreStatistics;
@@ -81,12 +83,14 @@ import org.apache.activemq.store.kahadb.data.KahaSubscriptionCommand;
 import org.apache.activemq.store.kahadb.data.KahaUpdateMessageCommand;
 import org.apache.activemq.store.kahadb.disk.journal.Location;
 import org.apache.activemq.store.kahadb.disk.page.Transaction;
+import org.apache.activemq.store.kahadb.disk.page.Transaction.CallableClosure;
 import org.apache.activemq.store.kahadb.disk.util.SequenceSet;
 import org.apache.activemq.store.kahadb.scheduler.JobSchedulerStoreImpl;
 import org.apache.activemq.usage.MemoryUsage;
 import org.apache.activemq.usage.SystemUsage;
 import org.apache.activemq.util.IOExceptionSupport;
 import org.apache.activemq.util.ServiceStopper;
+import org.apache.activemq.util.SubscriptionKey;
 import org.apache.activemq.util.ThreadPoolUtils;
 import org.apache.activemq.wireformat.WireFormat;
 import org.slf4j.Logger;
@@ -439,7 +443,7 @@ public class KahaDBStore extends MessageDatabase implements PersistenceAdapter, 
             try {
                 for (MessageAck ack : acks) {
                     final String key = recoveredTxStateMapKey(destination, ack);
-                    Set ackedAndPrepared = ackedAndPreparedMap.get(key);
+                    Set<String> ackedAndPrepared = ackedAndPreparedMap.get(key);
                     if (ackedAndPrepared == null) {
                         ackedAndPrepared = new LinkedHashSet<String>();
                         ackedAndPreparedMap.put(key, ackedAndPrepared);
@@ -458,7 +462,7 @@ public class KahaDBStore extends MessageDatabase implements PersistenceAdapter, 
                     for (MessageAck ack : acks) {
                         final String id = ack.getLastMessageId().toProducerKey();
                         final String key = recoveredTxStateMapKey(destination, ack);
-                        Set ackedAndPrepared = ackedAndPreparedMap.get(key);
+                        Set<String> ackedAndPrepared = ackedAndPreparedMap.get(key);
                         if (ackedAndPrepared != null) {
                             ackedAndPrepared.remove(id);
                             if (ackedAndPreparedMap.isEmpty()) {
@@ -466,7 +470,7 @@ public class KahaDBStore extends MessageDatabase implements PersistenceAdapter, 
                             }
                         }
                         if (rollback) {
-                            Set rolledBackAcks = rolledBackAcksMap.get(key);
+                            Set<String> rolledBackAcks = rolledBackAcksMap.get(key);
                             if (rolledBackAcks == null) {
                                 rolledBackAcks = new LinkedHashSet<String>();
                                 rolledBackAcksMap.put(key, rolledBackAcks);
@@ -683,10 +687,11 @@ public class KahaDBStore extends MessageDatabase implements PersistenceAdapter, 
                         StoredDestination sd = getStoredDestination(dest, tx);
                         recoverRolledBackAcks(destination.getPhysicalName(), sd, tx, Integer.MAX_VALUE, listener);
                         sd.orderIndex.resetCursorPosition();
-                        for (Iterator<Entry<Long, MessageKeys>> iterator = sd.orderIndex.iterator(tx); listener.hasSpace() && iterator
-                                .hasNext(); ) {
+                        for (Iterator<Entry<Long, MessageKeys>> iterator = 
+                                sd.orderIndex.iterator(tx, new MessageOrderCursor()); listener.hasSpace() && 
+                                iterator.hasNext(); ) {
                             Entry<Long, MessageKeys> entry = iterator.next();
-                            Set ackedAndPrepared = ackedAndPreparedMap.get(destination.getPhysicalName());
+                            Set<String> ackedAndPrepared = ackedAndPreparedMap.get(destination.getPhysicalName());
                             if (ackedAndPrepared != null && ackedAndPrepared.contains(entry.getValue().messageId)) {
                                 continue;
                             }
@@ -710,7 +715,7 @@ public class KahaDBStore extends MessageDatabase implements PersistenceAdapter, 
                         StoredDestination sd = getStoredDestination(dest, tx);
                         Entry<Long, MessageKeys> entry = null;
                         int counter = recoverRolledBackAcks(destination.getPhysicalName(), sd, tx, maxReturned, listener);
-                        Set ackedAndPrepared = ackedAndPreparedMap.get(destination.getPhysicalName());
+                        Set<String> ackedAndPrepared = ackedAndPreparedMap.get(destination.getPhysicalName());
                         for (Iterator<Entry<Long, MessageKeys>> iterator = sd.orderIndex.iterator(tx); iterator.hasNext(); ) {
                             entry = iterator.next();
                             if (ackedAndPrepared != null && ackedAndPrepared.contains(entry.getValue().messageId)) {
@@ -733,35 +738,61 @@ public class KahaDBStore extends MessageDatabase implements PersistenceAdapter, 
         }
 
         @Override
-        public void recoverNextMessages(final int offset, final int maxReturned, final MessageRecoveryListener listener) throws Exception {
+        public void recoverMessages(final MessageRecoveryContext messageRecoveryContext) throws Exception {
+
+            if(messageRecoveryContext == null || 
+               (messageRecoveryContext.getStartMessageId() != null &&
+                messageRecoveryContext.getOffset() != null)) {
+                LOG.warn("Invalid messageRecoveryContext:{}", messageRecoveryContext);
+                throw new IllegalArgumentException("Invalid messageRecoveryContext specified");
+            }
+
             indexLock.writeLock().lock();
             try {
                 pageFile.tx().execute(new Transaction.Closure<Exception>() {
                     @Override
                     public void execute(Transaction tx) throws Exception {
                         StoredDestination sd = getStoredDestination(dest, tx);
+
+                        Long startSequenceOffset = null;
+                        Long endSequenceOffset = null;
+
+                        if(messageRecoveryContext.getStartMessageId() != null && !messageRecoveryContext.getStartMessageId().isBlank()) {
+                            startSequenceOffset = Optional.ofNullable(sd.messageIdIndex.get(tx, messageRecoveryContext.getStartMessageId())).orElse(0L);
+                        } else {
+                            startSequenceOffset = Optional.ofNullable(messageRecoveryContext.getOffset()).orElse(0L);
+                        }
+
+                        if(messageRecoveryContext.getEndMessageId() != null && !messageRecoveryContext.getEndMessageId().isBlank()) {
+                            endSequenceOffset = Optional.ofNullable(sd.messageIdIndex.get(tx, messageRecoveryContext.getEndMessageId()))
+                                                        .orElse(startSequenceOffset + Long.valueOf(messageRecoveryContext.getMaxMessageCountReturned()));
+                        } else {
+                            endSequenceOffset = startSequenceOffset + Long.valueOf(messageRecoveryContext.getMaxMessageCountReturned());
+                        }
+
+                        if(endSequenceOffset < startSequenceOffset) {
+                            LOG.warn("Invalid offset parameters start:{} end:{}", startSequenceOffset, endSequenceOffset);
+                            throw new IllegalStateException("Invalid offset parameters start:" + startSequenceOffset + " end:" + endSequenceOffset);
+                        }
+
+                        messageRecoveryContext.setEndSequenceId(endSequenceOffset);
                         Entry<Long, MessageKeys> entry = null;
-                        int position = 0;
-                        int counter = recoverRolledBackAcks(destination.getPhysicalName(), sd, tx, maxReturned, listener);
-                        Set ackedAndPrepared = ackedAndPreparedMap.get(destination.getPhysicalName());
-                        for (Iterator<Entry<Long, MessageKeys>> iterator = sd.orderIndex.iterator(tx); iterator.hasNext(); ) {
+                        recoverRolledBackAcks(destination.getPhysicalName(), sd, tx, messageRecoveryContext.getMaxMessageCountReturned(), messageRecoveryContext);
+                        Set<String> ackedAndPrepared = ackedAndPreparedMap.get(destination.getPhysicalName());
+                        Iterator<Entry<Long, MessageKeys>> iterator = (messageRecoveryContext.isUseDedicatedCursor() ? sd.orderIndex.iterator(tx, new MessageOrderCursor(startSequenceOffset)) : sd.orderIndex.iterator(tx));
+
+                        while (iterator.hasNext()) {
                             entry = iterator.next();
 
                             if (ackedAndPrepared != null && ackedAndPrepared.contains(entry.getValue().messageId)) {
                                 continue;
                             }
 
-                            if(offset > 0 && offset > position) {
-                                position++;
-                                continue;
-                            }
-
                             Message msg = loadMessage(entry.getValue().location);
                             msg.getMessageId().setFutureOrSequenceLong(entry.getKey());
-                            listener.recoverMessage(msg);
-                            counter++;
-                            position++;
-                            if (counter >= maxReturned || !listener.canRecoveryNextMessage()) {
+
+                            messageRecoveryContext.recoverMessage(msg);
+                            if (!messageRecoveryContext.canRecoveryNextMessage(entry.getKey())) {
                                 break;
                             }
                         }
@@ -777,7 +808,7 @@ public class KahaDBStore extends MessageDatabase implements PersistenceAdapter, 
             int counter = 0;
             String id;
 
-            Set rolledBackAcks = rolledBackAcksMap.get(recoveredTxStateMapKey);
+            Set<String> rolledBackAcks = rolledBackAcksMap.get(recoveredTxStateMapKey);
             if (rolledBackAcks == null) {
                 return counter;
             }
@@ -916,7 +947,7 @@ public class KahaDBStore extends MessageDatabase implements PersistenceAdapter, 
                             return statistics;
                         }
                     });
-                    Set ackedAndPrepared = ackedAndPreparedMap.get(destination.getPhysicalName());
+                    Set<String> ackedAndPrepared = ackedAndPreparedMap.get(destination.getPhysicalName());
                     if (ackedAndPrepared != null) {
                         recoveredStatistics.getMessageCount().subtract(ackedAndPrepared.size());
                     }
@@ -929,9 +960,14 @@ public class KahaDBStore extends MessageDatabase implements PersistenceAdapter, 
                 unlockAsyncJobQueue();
             }
         }
+
+        @Override
+        public StoreType getType() {
+            return StoreType.KAHADB;
+        }
     }
 
-    class KahaDBTopicMessageStore extends KahaDBMessageStore implements TopicMessageStore {
+    class KahaDBTopicMessageStore extends KahaDBMessageStore implements TopicMessageStore{
         private final AtomicInteger subscriptionCount = new AtomicInteger();
         protected final MessageStoreSubscriptionStatistics messageStoreSubStats =
                 new MessageStoreSubscriptionStatistics(isEnableSubscriptionStatistics());
@@ -1203,7 +1239,7 @@ public class KahaDBStore extends MessageDatabase implements PersistenceAdapter, 
                             sd.orderIndex.setBatch(tx, cursorPos);
                         }
                         recoverRolledBackAcks(subscriptionKey, sd, tx, Integer.MAX_VALUE, listener);
-                        Set ackedAndPrepared = ackedAndPreparedMap.get(subscriptionKey);
+                        Set<String> ackedAndPrepared = ackedAndPreparedMap.get(subscriptionKey);
                         for (Iterator<Entry<Long, MessageKeys>> iterator = sd.orderIndex.iterator(tx); iterator
                                 .hasNext();) {
                             Entry<Long, MessageKeys> entry = iterator.next();
@@ -1263,7 +1299,7 @@ public class KahaDBStore extends MessageDatabase implements PersistenceAdapter, 
 
                         Entry<Long, MessageKeys> entry = null;
                         int counter = recoverRolledBackAcks(subscriptionKey, sd, tx, maxReturned, listener);
-                        Set ackedAndPrepared = ackedAndPreparedMap.get(subscriptionKey);
+                        Set<String> ackedAndPrepared = ackedAndPreparedMap.get(subscriptionKey);
                         for (Iterator<Entry<Long, MessageKeys>> iterator = sd.orderIndex.iterator(tx, moc); iterator
                                 .hasNext();) {
                             entry = iterator.next();
@@ -1289,6 +1325,64 @@ public class KahaDBStore extends MessageDatabase implements PersistenceAdapter, 
                         }
                     }
                 });
+            } finally {
+                indexLock.writeLock().unlock();
+            }
+        }
+
+        @Override
+        public Map<SubscriptionKey,List<Message>> recoverExpired(Set<SubscriptionKey> subscriptions, int maxBrowse,
+            MessageRecoveryListener listener) throws Exception {
+            indexLock.writeLock().lock();
+            try {
+                return pageFile.tx().execute(tx -> {
+                        StoredDestination sd = getStoredDestination(dest, tx);
+                        sd.orderIndex.resetCursorPosition();
+                        int count = 0;
+                        final Map<SubscriptionKey, List<Message>> expired = new HashMap<>();
+                        final Map<String, SubscriptionKey> subKeys = new HashMap<>();
+
+                        // Check each subscription and track the ones that exist
+                        for (SubscriptionKey sub : subscriptions) {
+                            final String subKeyString = subscriptionKey(sub.getClientId(), sub.getSubscriptionName());
+                            if (sd.subscriptionCache.contains(subKeyString)) {
+                                subKeys.put(subKeyString, sub);
+                            }
+                        }
+
+                        // Iterate one time through the topic and check each message, stopping if we run out
+                        // hit the max browse limit, or if the listener returns false for hasSpace()
+                        final Set<Long> uniqueExpired = new HashSet<>();
+                        for (Iterator<Entry<Long, MessageKeys>> iterator =
+                            sd.orderIndex.iterator(tx, new MessageOrderCursor()); count < maxBrowse && iterator.hasNext() && listener.hasSpace(); ) {
+                            count++;
+                            Entry<Long, MessageKeys> entry = iterator.next();
+                            Set<String> ackedAndPrepared = ackedAndPreparedMap.get(destination.getPhysicalName());
+                            if (ackedAndPrepared != null && ackedAndPrepared.contains(entry.getValue().messageId)) {
+                                continue;
+                            }
+
+                            final Message msg = loadMessage(entry.getValue().location);
+                            if (msg.isExpired()) {
+                                // For every message that is expired, go through and check each subscription to see
+                                // if the message has already been acked. We don't want to return subs that have already
+                                // acked the message.
+                                for(Entry<String, SubscriptionKey> subKeyEntry : subKeys.entrySet()) {
+                                    SequenceSet sequence = sd.ackPositions.get(tx, subKeyEntry.getKey());
+                                    if (sequence != null && sequence.contains(entry.getKey())) {
+                                        List<Message> expMessages = expired.computeIfAbsent(subKeyEntry.getValue(), m -> new ArrayList<>());
+                                        expMessages.add(msg);
+                                        // pass unique messages to the listener so it can do any custom
+                                        // handling for the next call to listener.hasSpace()
+                                        if (uniqueExpired.add(entry.getKey())) {
+                                            listener.recoverMessage(msg);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        return expired;
+                    });
             } finally {
                 indexLock.writeLock().unlock();
             }
