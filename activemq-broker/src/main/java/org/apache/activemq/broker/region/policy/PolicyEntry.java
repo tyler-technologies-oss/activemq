@@ -1208,7 +1208,7 @@ public class PolicyEntry extends DestinationMapEntry {
 	}
 
 	public void setMaxPendingDispatchMessages(int maxPendingDispatchMessages) {
-		LOG.info("maxPendingDispatchMessages set to "+maxPendingDispatchMessages);
+		LOG.debug("maxPendingDispatchMessages set to "+maxPendingDispatchMessages);
 		this.maxPendingDispatchMessages = maxPendingDispatchMessages;
 	}
 }
