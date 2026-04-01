@@ -234,7 +234,6 @@ public abstract class DemandForwardingBridgeSupport implements NetworkBridge, Br
                         LOG.info("Error with pending local brokerInfo on: {} ({})", localBroker, error.getMessage());
                         LOG.debug("Peer error: ", error);
                         futureLocalBrokerInfo.cancel(true);
-                        return;
                     }
                     serviceLocalException(error);
                 }
@@ -254,7 +253,6 @@ public abstract class DemandForwardingBridgeSupport implements NetworkBridge, Br
                         LOG.info("Error with pending remote brokerInfo on: {} ({})", remoteBroker, error.getMessage());
                         LOG.debug("Peer error: ", error);
                         futureRemoteBrokerInfo.cancel(true);
-                        return;
                     }
                     serviceRemoteException(error);
                 }
