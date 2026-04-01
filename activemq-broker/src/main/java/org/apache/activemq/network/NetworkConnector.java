@@ -174,11 +174,11 @@ public abstract class NetworkConnector extends NetworkBridgeConfiguration implem
         if (localURI == null) {
             throw new IllegalStateException("You must configure the 'localURI' property");
         }
-        LOG.info("Network Connector {} started", this);
+        LOG.info("{} - Network Connector {} started", getName(), this);
     }
 
     protected void handleStop(ServiceStopper stopper) throws Exception {
-        LOG.info("Network Connector {} stopped", this);
+        LOG.info("{} - Network Connector {} stopped", getName(), this);
     }
 
     public boolean isStarted() {
@@ -218,7 +218,7 @@ public abstract class NetworkConnector extends NetworkBridgeConfiguration implem
             ObjectName objectName = createNetworkBridgeObjectName(bridge);
             AnnotatedMBean.registerMBean(getBrokerService().getManagementContext(), view, objectName);
         } catch (Throwable e) {
-            LOG.debug("Network bridge could not be registered in JMX: {}", e.getMessage(), e);
+            LOG.debug("{} - Network bridge could not be registered in JMX: {}", getName(), e.getMessage(), e);
         }
     }
 
@@ -230,7 +230,7 @@ public abstract class NetworkConnector extends NetworkBridgeConfiguration implem
             ObjectName objectName = createNetworkBridgeObjectName(bridge);
             getBrokerService().getManagementContext().unregisterMBean(objectName);
         } catch (Throwable e) {
-            LOG.debug("Network bridge could not be unregistered in JMX: {}", e.getMessage(), e);
+            LOG.debug("{} - Network bridge could not be unregistered in JMX: {}", getName(), e.getMessage(), e);
         }
     }
 

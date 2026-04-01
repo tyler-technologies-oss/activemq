@@ -36,8 +36,9 @@ import org.slf4j.LoggerFactory;
 public class SimpleDiscoveryAgent implements DiscoveryAgent {
 
     private final static Logger LOG = LoggerFactory.getLogger(SimpleDiscoveryAgent.class);
-    private long initialReconnectDelay = 1000;
-    private long maxReconnectDelay = 1000 * 30;
+    private String name;
+    private long initialReconnectDelay = 30*1000;
+    private long maxReconnectDelay = 1000 * 60;
     private long backOffMultiplier = 2;
     private boolean useExponentialBackOff=true;
     private int maxReconnectAttempts;
@@ -130,6 +131,8 @@ public class SimpleDiscoveryAgent implements DiscoveryAgent {
     @Override
     public void serviceFailed(DiscoveryEvent devent) throws IOException {
 
+       LOG.info("{} - ServiceFailed event raised ", getName());
+
         final SimpleDiscoveryEvent sevent = (SimpleDiscoveryEvent)devent;
         if (running.get() && sevent.failed.compareAndSet(false, true)) {
 
@@ -137,17 +140,18 @@ public class SimpleDiscoveryAgent implements DiscoveryAgent {
             taskRunner.execute(new Runnable() {
                 @Override
                 public void run() {
+                	LOG.info("{} - ServiceFailed event raised - Starting a new thread ", getName());
                     SimpleDiscoveryEvent event = new SimpleDiscoveryEvent(sevent);
 
                     // We detect a failed connection attempt because the service
                     // fails right away.
                     if (event.connectTime + minConnectTime > System.currentTimeMillis()) {
-                        LOG.debug("Failure occurred soon after the discovery event was generated.  It will be classified as a connection failure: {}", event);
+                        LOG.debug("{} - Failure occurred soon after the discovery event was generated.  It will be classified as a connection failure: {}", getName(), event);
 
                         event.connectFailures++;
 
                         if (maxReconnectAttempts > 0 && event.connectFailures >= maxReconnectAttempts) {
-                            LOG.warn("Reconnect attempts exceeded {} tries.  Reconnecting has been disabled for: {}", maxReconnectAttempts, event);
+                            LOG.warn("{} - Reconnect attempts exceeded {} tries.  Reconnecting has been disabled for: {}", getName(), maxReconnectAttempts, event);
                             return;
                         }
 
@@ -164,8 +168,8 @@ public class SimpleDiscoveryAgent implements DiscoveryAgent {
                         doReconnectDelay(event);
 
                     } else {
-                        LOG.trace("Failure occurred to long after the discovery event was generated.  " +
-                                  "It will not be classified as a connection failure: {}", event);
+                        LOG.trace("{} - Failure occurred to long after the discovery event was generated.  " +
+                                  "It will not be classified as a connection failure: {}", getName(), event);
                         event.connectFailures = 0;
                         event.reconnectDelay = initialReconnectDelay;
 
@@ -173,7 +177,7 @@ public class SimpleDiscoveryAgent implements DiscoveryAgent {
                     }
 
                     if (!running.get()) {
-                        LOG.debug("Reconnecting disabled: stopped");
+                        LOG.debug("{} - Reconnecting disabled: stopped", getName());
                         return;
                     }
 
@@ -189,14 +193,14 @@ public class SimpleDiscoveryAgent implements DiscoveryAgent {
         synchronized (sleepMutex) {
             try {
                 if (!running.get()) {
-                    LOG.debug("Reconnecting disabled: stopped");
+                    LOG.debug("{} - Reconnecting disabled: stopped", getName());
                     return;
                 }
 
-                LOG.debug("Waiting {}ms before attempting to reconnect.", event.reconnectDelay);
+                LOG.debug("{} - Waiting {}ms before attempting to reconnect.", getName(), event.reconnectDelay);
                 sleepMutex.wait(event.reconnectDelay);
             } catch (InterruptedException ie) {
-                LOG.debug("Reconnecting disabled: ", ie);
+                LOG.debug("{} - Reconnecting disabled: ", getName(), ie);
                 Thread.currentThread().interrupt();
                 return;
             }
@@ -249,5 +253,13 @@ public class SimpleDiscoveryAgent implements DiscoveryAgent {
 
     public void setUseExponentialBackOff(boolean useExponentialBackOff) {
         this.useExponentialBackOff = useExponentialBackOff;
+    }
+
+    public String getName() {
+        return name != null ? name : "SimpleDiscoveryAgent";
+    }
+
+    public void setName(String name) {
+        this.name = name;
     }
 }

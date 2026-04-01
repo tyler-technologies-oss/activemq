@@ -230,11 +230,18 @@ public abstract class DemandForwardingBridgeSupport implements NetworkBridge, Br
 
                 @Override
                 public void onException(IOException error) {
+                    String callers = captureCallerStackTrace();
+                    LOG.info("{} - onException(local) called: errorType={}, errorMsg={}, futureLocalBrokerInfo.isDone={}, futureLocalBrokerInfo.isCancelled={}, disposed={}, thread={}, callers={}",
+                            configuration.getName(), error.getClass().getSimpleName(), error.getMessage(),
+                            futureLocalBrokerInfo.isDone(), futureLocalBrokerInfo.isCancelled(), disposed.get(),
+                            Thread.currentThread().getName(), callers);
                     if (!futureLocalBrokerInfo.isDone()) {
-                        LOG.info("Error with pending local brokerInfo on: {} ({})", localBroker, error.getMessage());
-                        LOG.debug("Peer error: ", error);
+                        LOG.info("{} - Error with pending local brokerInfo on: {} ({})",configuration.getName(), localBroker, error.getMessage());
+                        LOG.info("{} - Peer error: ", configuration.getName(),error);
                         futureLocalBrokerInfo.cancel(true);
-                        return;
+                        LOG.info("{} - onException(local) future not done (bug path) - STILL calling serviceLocalException to trigger reconnection", configuration.getName());
+                    } else {
+                        LOG.info("{} - onException(local) future done - calling serviceLocalException", configuration.getName());
                     }
                     serviceLocalException(error);
                 }
@@ -250,11 +257,18 @@ public abstract class DemandForwardingBridgeSupport implements NetworkBridge, Br
 
                 @Override
                 public void onException(IOException error) {
+                    String callers = captureCallerStackTrace();
+                    LOG.info("{} - onException(remote) called: errorType={}, errorMsg={}, futureRemoteBrokerInfo.isDone={}, futureRemoteBrokerInfo.isCancelled={}, disposed={}, thread={}, callers={}",
+                            configuration.getName(), error.getClass().getSimpleName(), error.getMessage(),
+                            futureRemoteBrokerInfo.isDone(), futureRemoteBrokerInfo.isCancelled(), disposed.get(),
+                            Thread.currentThread().getName(), callers);
                     if (!futureRemoteBrokerInfo.isDone()) {
-                        LOG.info("Error with pending remote brokerInfo on: {} ({})", remoteBroker, error.getMessage());
-                        LOG.debug("Peer error: ", error);
+                        LOG.info("{} - Error with pending remote brokerInfo on: {} ({})", configuration.getName(),remoteBroker, error.getMessage());
+                        LOG.info("{} - Peer error: ",configuration.getName(), error);
                         futureRemoteBrokerInfo.cancel(true);
-                        return;
+                        LOG.info("{} - onException(remote) future not done (bug path) - STILL calling serviceRemoteException to trigger reconnection", configuration.getName());
+                    } else {
+                        LOG.info("{} - onException(remote) future done - calling serviceRemoteException", configuration.getName());
                     }
                     serviceRemoteException(error);
                 }
@@ -267,10 +281,10 @@ public abstract class DemandForwardingBridgeSupport implements NetworkBridge, Br
                 try {
                     triggerStartAsyncNetworkBridgeCreation();
                 } catch (IOException e) {
-                    LOG.warn("Caught exception from remote start", e);
+                    LOG.warn("{} - Caught exception from remote start", configuration.getName(),e);
                 }
             } else {
-                LOG.warn("Bridge was disposed before the start() method was fully executed.");
+                LOG.warn("{} - Bridge was disposed before the start() method was fully executed.",configuration.getName());
                 throw new TransportDisposedIOException();
             }
         }
@@ -280,7 +294,7 @@ public abstract class DemandForwardingBridgeSupport implements NetworkBridge, Br
     public void stop() throws Exception {
         if (started.compareAndSet(true, false)) {
             if (disposed.compareAndSet(false, true)) {
-                LOG.debug(" stopping {} bridge to {}", configuration.getBrokerName(), remoteBrokerName);
+                LOG.info("{} - stopping {} bridge to {}", configuration.getName(),configuration.getBrokerName(), remoteBrokerName);
 
                 futureRemoteBrokerInfo.cancel(true);
                 futureLocalBrokerInfo.cancel(true);
@@ -292,7 +306,7 @@ public abstract class DemandForwardingBridgeSupport implements NetworkBridge, Br
                 try {
                     // local start complete
                     if (startedLatch.getCount() < 2) {
-                        LOG.trace("{} unregister bridge ({}) to {}",
+                        LOG.info("{} - {} unregister bridge ({}) to {}",configuration.getName(),
                                 configuration.getBrokerName(), this, remoteBrokerName);
                         brokerService.getBroker().removeBroker(null, remoteBrokerInfo);
                         brokerService.getBroker().networkBridgeStopped(remoteBrokerInfo);
@@ -308,7 +322,7 @@ public abstract class DemandForwardingBridgeSupport implements NetworkBridge, Br
                                 serialExecutor.shutdown();
                                 if (!serialExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
                                     List<Runnable> pendingTasks = serialExecutor.shutdownNow();
-                                    LOG.info("pending tasks on stop {}", pendingTasks);
+                                    LOG.info("{} - pending tasks on stop {}", configuration.getName(),pendingTasks);
                                 }
                                 //Shutdown the syncExecutor, call countDown to make sure a thread can
                                 //terminate if it is waiting
@@ -316,12 +330,12 @@ public abstract class DemandForwardingBridgeSupport implements NetworkBridge, Br
                                 syncExecutor.shutdown();
                                 if (!syncExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
                                     List<Runnable> pendingTasks = syncExecutor.shutdownNow();
-                                    LOG.info("pending tasks on stop {}", pendingTasks);
+                                    LOG.info("{} - pending tasks on stop {}", configuration.getName(),pendingTasks);
                                 }
                                 localBroker.oneway(new ShutdownInfo());
                                 remoteBroker.oneway(new ShutdownInfo());
                             } catch (Throwable e) {
-                                LOG.debug("Caught exception sending shutdown", e);
+                                LOG.info("{} - Caught exception sending shutdown",configuration.getName(), e);
                             } finally {
                                 sendShutdown.countDown();
                             }
@@ -330,7 +344,7 @@ public abstract class DemandForwardingBridgeSupport implements NetworkBridge, Br
                     }, "ActiveMQ ForwardingBridge StopTask");
 
                     if (!sendShutdown.await(10, TimeUnit.SECONDS)) {
-                        LOG.info("Network Could not shutdown in a timely manner");
+                        LOG.info("{} - Network Could not shutdown in a timely manner",configuration.getName());
                     }
                 } finally {
                     ServiceStopper ss = new ServiceStopper();
@@ -349,7 +363,7 @@ public abstract class DemandForwardingBridgeSupport implements NetworkBridge, Br
                 }
             }
 
-            LOG.info("{} bridge to {} stopped", configuration.getBrokerName(), remoteBrokerName);
+            LOG.info("{} - {} bridge to {} stopped", configuration.getName(),configuration.getBrokerName(), remoteBrokerName);
         }
     }
 
@@ -363,7 +377,29 @@ public abstract class DemandForwardingBridgeSupport implements NetworkBridge, Br
         }
     }
 
+    private String captureCallerStackTrace() {
+        try {
+            StackTraceElement[] stack = Thread.currentThread().getStackTrace();
+            StringBuilder callers = new StringBuilder();
+            // Print first 5 stack frames (skip 0=getStackTrace, 1=this method, 2=calling method)
+            for (int i = 3; i < Math.min(stack.length, 8); i++) {
+                if (i > 3) {
+                    callers.append(System.lineSeparator());
+                    callers.append("  <- ");
+                } else {
+                    callers.append(System.lineSeparator()).append("  ");
+                }
+                callers.append(stack[i].getClassName()).append(".").append(stack[i].getMethodName()).append(":").append(stack[i].getLineNumber());
+            }
+            return callers.toString();
+        } catch (Exception e) {
+            return "[stack trace unavailable]";
+        }
+    }
+
     protected void triggerStartAsyncNetworkBridgeCreation() throws IOException {
+        LOG.info("{} - Scheduling async network bridge creation task (disposed={}, futureRemoteBrokerInfo.isDone={})",
+                configuration.getName(), disposed.get(), futureRemoteBrokerInfo.isDone());
         brokerService.getTaskRunnerFactory().execute(new Runnable() {
             @Override
             public void run() {
@@ -371,6 +407,8 @@ public abstract class DemandForwardingBridgeSupport implements NetworkBridge, Br
                 Thread.currentThread().setName("triggerStartAsyncNetworkBridgeCreation: " +
                         "remoteBroker=" + remoteBroker + ", localBroker= " + localBroker);
 
+                LOG.info("{} - Async network bridge creation task STARTED (disposed={}, futureRemoteBrokerInfo.isDone={})",
+                        configuration.getName(), disposed.get(), futureRemoteBrokerInfo.isDone());
                 try {
                     // First we collect the info data from both the local and remote ends
                     collectBrokerInfos();
@@ -379,6 +417,7 @@ public abstract class DemandForwardingBridgeSupport implements NetworkBridge, Br
                     // the local and then remote sides of the bridge.
                     doStartLocalAndRemoteBridges();
                 } finally {
+                    LOG.info("{} - Async network bridge creation task COMPLETED", configuration.getName());
                     Thread.currentThread().setName(originalName);
                 }
             }
@@ -392,22 +431,35 @@ public abstract class DemandForwardingBridgeSupport implements NetworkBridge, Br
            timeout = tcpTransport.getConnectionTimeout();
         }
 
+        LOG.info("{} - collectBrokerInfos() ENTRY (timeout={}ms, disposed={}, futureRemoteBrokerInfo.isDone={}, futureRemoteBrokerInfo.isCancelled={})",
+                configuration.getName(), timeout, disposed.get(), futureRemoteBrokerInfo.isDone(), futureRemoteBrokerInfo.isCancelled());
+
         // First wait for the remote to feed us its BrokerInfo, then we can check on
         // the LocalBrokerInfo and decide is this is a loop.
         try {
+            LOG.info("{} - Calling futureRemoteBrokerInfo.get({}ms)...", configuration.getName(), timeout);
             remoteBrokerInfo = futureRemoteBrokerInfo.get(timeout, TimeUnit.MILLISECONDS);
+            LOG.info("{} - futureRemoteBrokerInfo.get() returned: {}", configuration.getName(),
+                    (remoteBrokerInfo != null ? remoteBrokerInfo.getBrokerName() : "null"));
             if (remoteBrokerInfo == null) {
+                LOG.info("{} - remoteBrokerInfo is null, calling serviceLocalException", configuration.getName());
                 serviceLocalException(new Throwable("remoteBrokerInfo is null"));
                 return;
             }
         } catch (Exception e) {
+            LOG.info("{} - futureRemoteBrokerInfo.get() threw exception: {} - {}, calling serviceRemoteException",
+                    configuration.getName(), e.getClass().getSimpleName(), e.getMessage());
             serviceRemoteException(e);
             return;
         }
 
         try {
+            LOG.info("{} - Calling futureLocalBrokerInfo.get({}ms)...", configuration.getName(), timeout);
             localBrokerInfo = futureLocalBrokerInfo.get(timeout, TimeUnit.MILLISECONDS);
+            LOG.info("{} - futureLocalBrokerInfo.get() returned: {}", configuration.getName(),
+                    (localBrokerInfo != null ? localBrokerInfo.getBrokerName() : "null"));
             if (localBrokerInfo == null) {
+                LOG.info("{} - localBrokerInfo is null, calling serviceLocalException", configuration.getName());
                 serviceLocalException(new Throwable("localBrokerInfo is null"));
                 return;
             }
@@ -416,7 +468,7 @@ public abstract class DemandForwardingBridgeSupport implements NetworkBridge, Br
             // and if so just stop now before registering anything.
             remoteBrokerId = remoteBrokerInfo.getBrokerId();
             if (localBrokerId.equals(remoteBrokerId)) {
-                LOG.trace("{} disconnecting remote loop back connector for: {}, with id: {}",
+                LOG.info("{} disconnecting remote loop back connector for: {}, with id: {}",
                         configuration.getBrokerName(), remoteBrokerName, remoteBrokerId);
                 ServiceSupport.dispose(localBroker);
                 ServiceSupport.dispose(remoteBroker);
@@ -432,6 +484,8 @@ public abstract class DemandForwardingBridgeSupport implements NetworkBridge, Br
                 idGenerator = new IdGenerator(brokerService.getBrokerName() + "->" + remoteBrokerName);
             }
         } catch (Throwable e) {
+            LOG.info("{} - futureLocalBrokerInfo.get() threw exception: {} - {}, calling serviceLocalException",
+                    configuration.getName(), e.getClass().getSimpleName(), e.getMessage());
             serviceLocalException(e);
         }
     }
@@ -492,7 +546,7 @@ public abstract class DemandForwardingBridgeSupport implements NetworkBridge, Br
     private void startLocalBridge() throws Throwable {
         if (!bridgeFailed.get() && localBridgeStarted.compareAndSet(false, true)) {
             synchronized (this) {
-                LOG.trace("{} starting local Bridge, localBroker={}", configuration.getBrokerName(), localBroker);
+                LOG.info("{} - {} starting local Bridge, localBroker={}", configuration.getName(),configuration.getBrokerName(), localBroker);
                 if (!disposed.get()) {
 
                     if (idGenerator == null) {
@@ -559,12 +613,12 @@ public abstract class DemandForwardingBridgeSupport implements NetworkBridge, Br
                     // new peer broker (a consumer can work with remote broker also)
                     brokerService.getBroker().addBroker(null, remoteBrokerInfo);
 
-                    LOG.info("Network connection between {} and {} ({}) has been established.",
+                    LOG.info("{} - Network connection between {} and {} ({}) has been established.",configuration.getName(),
                             localBroker, remoteBroker, remoteBrokerName);
-                    LOG.trace("{} register bridge ({}) to {}",
+                    LOG.info("{} - {} register bridge ({}) to {}",configuration.getName(),
                             configuration.getBrokerName(), this, remoteBrokerName);
                 } else {
-                    LOG.warn("Bridge was disposed before the startLocalBridge() method was fully executed.");
+                    LOG.warn("{} - Bridge was disposed before the startLocalBridge() method was fully executed.",configuration.getName());
                 }
                 startedLatch.countDown();
                 localStartedLatch.countDown();
@@ -574,7 +628,7 @@ public abstract class DemandForwardingBridgeSupport implements NetworkBridge, Br
 
     protected void startRemoteBridge() throws Exception {
         if (!bridgeFailed.get() && remoteBridgeStarted.compareAndSet(false, true)) {
-            LOG.trace("{} starting remote Bridge, remoteBroker={}", configuration.getBrokerName(), remoteBroker);
+            LOG.info("{} - {} starting remote Bridge, remoteBroker={}", configuration.getName(),configuration.getBrokerName(), remoteBroker);
             synchronized (this) {
                 if (!isCreatedByDuplex()) {
                     BrokerInfo brokerInfo = new BrokerInfo();
@@ -653,20 +707,34 @@ public abstract class DemandForwardingBridgeSupport implements NetworkBridge, Br
 
     @Override
     public void serviceRemoteException(Throwable error) {
+        String callers = captureCallerStackTrace();
+        LOG.info("{} - serviceRemoteException() ENTRY: errorType={}, disposed={}, bridgeFailed={}, thread={}, callers={}",
+                configuration.getName(), error.getClass().getSimpleName(), disposed.get(),
+                bridgeFailed.get(), Thread.currentThread().getName(), callers);
         if (!disposed.get()) {
             if (error instanceof SecurityException || error instanceof GeneralSecurityException) {
-                LOG.error("Network connection between {} and {} shutdown due to a remote error: {}", localBroker, remoteBroker, error.toString());
+                LOG.error("{} - Network connection between {} and {} shutdown due to a remote error: {}", configuration.getName(), remoteBroker, error.toString());
             } else {
-                LOG.warn("Network connection between {} and {} shutdown due to a remote error: {}", localBroker, remoteBroker, error.toString());
+                LOG.warn("{} - Network connection between {} and {} shutdown due to a remote error: {}",  configuration.getName(),localBroker, remoteBroker, error.toString());
             }
-            LOG.debug("The remote Exception was: {}", error, error);
+            LOG.info("{} - The remote Exception was: {}", configuration.getName(), error, error);
+            LOG.info("{} - serviceRemoteException() spawning disposal thread for: {}", configuration.getName(), getControllingService());
             brokerService.getTaskRunnerFactory().execute(new Runnable() {
                 @Override
                 public void run() {
-                    ServiceSupport.dispose(getControllingService());
+                    LOG.info("{} - Disposal thread STARTED for: {}", configuration.getName(), getControllingService());
+                    try {
+                        ServiceSupport.dispose(getControllingService());
+                        LOG.info("{} - Disposal thread COMPLETED successfully", configuration.getName());
+                    } catch (Exception e) {
+                        LOG.error("{} - Disposal thread FAILED with exception", configuration.getName(), e);
+                    }
                 }
             });
+            LOG.info("{} - serviceRemoteException() calling fireBridgeFailed()", configuration.getName());
             fireBridgeFailed(error);
+        } else {
+            LOG.info("{} - serviceRemoteException() skipped because disposed=true", configuration.getName());
         }
     }
 
@@ -1117,11 +1185,15 @@ public abstract class DemandForwardingBridgeSupport implements NetworkBridge, Br
 
     @Override
     public void serviceLocalException(Throwable error) {
+        String callers = captureCallerStackTrace();
+        LOG.info("{} - serviceLocalException() ENTRY: errorType={}, disposed={}, bridgeFailed={}, thread={}, callers={}",
+                configuration.getName(), error.getClass().getSimpleName(), disposed.get(),
+                bridgeFailed.get(), Thread.currentThread().getName(), callers);
         serviceLocalException(null, error);
     }
 
     public void serviceLocalException(MessageDispatch messageDispatch, Throwable error) {
-        LOG.trace("serviceLocalException: disposed {} ex", disposed.get(), error);
+        LOG.info("serviceLocalException: disposed {} ex", disposed.get(), error);
         if (!disposed.get()) {
             if (error instanceof DestinationDoesNotExistException && ((DestinationDoesNotExistException) error).isTemporary()) {
                 // not a reason to terminate the bridge - temps can disappear with
@@ -1143,14 +1215,22 @@ public abstract class DemandForwardingBridgeSupport implements NetworkBridge, Br
             }
 
             LOG.info("Network connection between {} and {} shutdown due to a local error: {}", localBroker, remoteBroker, error);
-            LOG.debug("The local Exception was: {}", error, error);
+            LOG.info("The local Exception was: {}", error, error);
 
+            LOG.info("{} - serviceLocalException() spawning disposal thread for: {}", configuration.getName(), getControllingService());
             brokerService.getTaskRunnerFactory().execute(new Runnable() {
                 @Override
                 public void run() {
-                    ServiceSupport.dispose(getControllingService());
+                    LOG.info("{} - Disposal thread STARTED for: {}", configuration.getName(), getControllingService());
+                    try {
+                        ServiceSupport.dispose(getControllingService());
+                        LOG.info("{} - Disposal thread COMPLETED successfully", configuration.getName());
+                    } catch (Exception e) {
+                        LOG.error("{} - Disposal thread FAILED with exception", configuration.getName(), e);
+                    }
                 }
             });
+            LOG.info("{} - serviceLocalException() calling fireBridgeFailed()", configuration.getName());
             fireBridgeFailed(error);
         }
     }
@@ -1799,10 +1879,25 @@ public abstract class DemandForwardingBridgeSupport implements NetworkBridge, Br
     }
 
     private void fireBridgeFailed(Throwable reason) {
-        LOG.trace("fire bridge failed, listener: {}", this.networkBridgeListener, reason);
+        LOG.info("{} - fireBridgeFailed() ENTRY: listener={}, bridgeFailed={}, thread={}",
+                configuration.getName(), this.networkBridgeListener != null ? "present" : "null",
+                this.bridgeFailed.get(), Thread.currentThread().getName());
         NetworkBridgeListener l = this.networkBridgeListener;
         if (l != null && this.bridgeFailed.compareAndSet(false, true)) {
-            l.bridgeFailed();
+            LOG.info("{} - fireBridgeFailed() calling listener.bridgeFailed() - compareAndSet SUCCESS", configuration.getName());
+            try {
+                l.bridgeFailed();
+                LOG.info("{} - fireBridgeFailed() listener.bridgeFailed() COMPLETED", configuration.getName());
+            } catch (Exception e) {
+                LOG.error("{} - fireBridgeFailed() listener.bridgeFailed() threw exception", configuration.getName(), e);
+            }
+        } else {
+            if (l == null) {
+                LOG.info("{} - fireBridgeFailed() SKIPPED: listener is null", configuration.getName());
+            } else {
+                LOG.info("{} - fireBridgeFailed() SKIPPED: compareAndSet FAILED (already called), bridgeFailed={}",
+                        configuration.getName(), this.bridgeFailed.get());
+            }
         }
     }
 
